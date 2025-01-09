@@ -6,6 +6,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from dexsum.x_client import XClient
+from dexsum.x_client_rapidapi import TwitterApiClient
 from typing import Literal
 from report.llm import Reporter
 
@@ -84,7 +85,6 @@ class SolanaTransactionFetcher:
         """
         Fetch metadata for a given token address.
         """
-        add = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
         url = self.base_url + f"/token/meta?address={add}"
         response = requests.get(url, headers=self.headers)
         if response.status_code == 200 and response.json().get("success", False):
@@ -98,7 +98,7 @@ class SolanaTransactionFetcher:
                 for future in futures:
                     future.cancel()
 
-    def get_coin(self, created_time = 24, volume = 1, page = 1, page_size = 100):
+    def get_coin(self, created_time = 24, volume = 1, page = 100, page_size = 100):
         data = []
         now = time.time()
         #get token within day
@@ -114,11 +114,34 @@ class SolanaTransactionFetcher:
         return result
         
     def calculate_score(self, token_data : dict):
-        score = 40
-        # cộng điểm theo holder
-        if len(token_data['holders']['kols']) > 0:
-            score += 10
-        return score
+        scores = 0
+        reasons = []
+        # cộng điểm theo volume
+        if token_data['volume_24h'] > 1e6:
+            score = 10
+            reasons.append(f"- volume > 1M: {score} ")
+            scores += score
+        # Cộng điểm theo holder
+        score = min([int(token_data['holders']['total']/1000),10])
+        reasons.append(f"- total holders = {token_data['holders']['total']}: {score}")
+        scores += score
+        
+        # cộng điểm theo holders < 25%
+        score = min(len(token_data['holders']['items']), 10)
+        reasons.append(f"- {len(token_data['holders']['items'])} holders < 25% : {score}")
+        scores += score
+        
+        #txn
+        score = 10
+        reasons.append(f"- txn > 1000 : {score}")
+        scores += score
+        
+        #num kols
+        score = min(len(token_data['holders']['kols']), 10)
+        reasons.append(f"- {len(token_data['holders']['kols'])} smart money bought this token : {score}")
+        scores += score
+            
+        return scores, reasons
     
     def get_social(self, token_address: str, type_social: Literal["twitter","telegram"] = None):
         url = f'https://api.dexscreener.com/latest/dex/pairs/solana/{token_address}'
@@ -190,53 +213,47 @@ if __name__ == "__main__":
 
     #define object
     fetcher = SolanaTransactionFetcher()
-    x_client = XClient(
+    x_client_post = XClient(
         bearer_token= BEARER_TOKEN,
         consumer_key= API_KEY,
         consumer_secret= API_SECRET_KEY,
         access_token= ACCESS_TOKEN,
         access_token_secret= ACCESS_TOKEN_SECRET
     )
+    # Usage example (replace with actual API key and host):
+    
+    x_client = TwitterApiClient(os.environ.get("RAPIDAPI_KEY",""),os.environ.get("RAPIDAPI_HOST",""))
     reporter = Reporter()
     
     # coin information
     result = fetcher.get_coin(page = 1, page_size = 100)
     promise_token = result[0]
-    
+    token_address = promise_token['address']
+    token_name = promise_token['name']
     #  analyze narrative
-    tweet = fetcher.get_social("95ecyahcxcecupe1mrjdsbt82acqke2ocna9ffq9bicf", type_social = "twitter")
+    tweet = fetcher.get_social(token_address, type_social = "twitter")
     if tweet:
-        tweet = tweet.replace("https://x.com/","")
+        tweet_username = tweet.replace("https://x.com/","")
+        
+    rest_id = x_client.get_user_by_username(tweet_username)
+    post_ids = x_client.get_posts_by_rest_id(rest_id)
+    tweets = []
+    for post_id in post_ids:
+        tweets.append(x_client.get_post_content(post_id))
+        
+    texts = "\n".join(tweets['texts']).strip()
 
-    # tweets = x_client.get_latest_tweet(tweet, 5)
-    # texts = ""
-    # if tweets:
-    #     texts = "\n".join(tweets['texts'])
-    texts = "\n".join([
-        """Extra Large Language Model $XLLM Is now Live !
-
-ca - 9aLx5SCcoacuK4VVmucy3yu7smR37TWXFyTHnxUQpump
-
-chart - https://dexscreener.com/solana/95ecyahcxcecupe1mrjdsbt82acqke2ocna9ffq9bicf
-
-tg - https://t.me/xllmonsol
-
-First 777 wallets will be eligible for 1,000,000 $XLLM Airdrop !""",
-
-"""To Celebrate 3,000 Holders,
-
-giving away 3,000$ $XLLM to try help some people out
-picking 3 people, 1000$ each
-just reply to enter, no need to follow just wanna help ppl
-
-ending in 8hour-ish"""
-    ])
     trending_narrative = """Rebellion against the status quo: Hunger games, Oblivion, 12 Years a slave, in a world of complexity, ruled by dynamics which people feel are out of their direct control, rebellion is a theme that resonates deeply and generates powerful resonance."""
-    analysis = reporter.analyse("trending is true story of AI", texts)
+    analysis = reporter.analyse(trending_narrative, texts)
 
     #calculate score
-    score = fetcher.calculate_score(promise_token)
+    total_score, score_reasoning = fetcher.calculate_score(promise_token)
     
-    
-    report = reporter.make_report("XLLM", analyse =analysis, aisem_score= score )
+    report = reporter.make_report(token_name, analyse =analysis, aisem_score= total_score )
+    detail_score = reporter.make_clarify(score_reasoning)
     print(report)
+    print(detail_score)
+    
+    x_client_post.post(report+detail_score)
+    
+    
