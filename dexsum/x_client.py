@@ -74,11 +74,9 @@ class XClient():
             Dictionary containing the latest tweet's ID, text, and creation date.
         """
         try:
-            # Get the user ID of the account
-            print(1)
             user = self.client.get_user(username=username)
             user_id = user.data.id
-            print(user, user_id)
+
             # Fetch the latest tweet
             tweets = self.client.get_users_tweets(
                 id=user_id, 
@@ -87,11 +85,10 @@ class XClient():
             )
 
             if tweets.data:
-                latest_tweet = tweets.data[0]
                 return {
-                    "id": latest_tweet.id,
-                    "text": latest_tweet.text,
-                    "created_at": latest_tweet.created_at
+                    "ids": [x.id for x in tweets.data],
+                    "texts": [x.text for x in tweets.data],
+                    "created_ats": [x.created_at for x in tweets.data]
                 }
             else:
                 print(f"No tweets found for user @{username}.")
