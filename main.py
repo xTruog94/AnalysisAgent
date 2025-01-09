@@ -78,7 +78,7 @@ class SolanaTransactionFetcher:
                 result.append(coin_info)
 
 
-    def get_coin(self, created_time = 24, market_cap = 0.000001, page = 1, page_size = 100):
+    def get_coin(self, created_time = 24, market_cap = 1, page = 1, page_size = 100):
         data = []
         now = time.time()
         #get token within day
