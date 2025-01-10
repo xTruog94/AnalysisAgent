@@ -85,24 +85,42 @@ class SolanaTransactionFetcher:
         """
         Fetch metadata for a given token address.
         """
-        url = self.base_url + f"/token/meta?address={add}"
-        response = requests.get(url, headers=self.headers)
-        if response.status_code == 200 and response.json().get("success", False):
-            coin_info = response.json().get("data", {})
-            if coin_info and coin_info.get('volume_24h', 0) > volume * 1e6:
-                coin_suppy = int(coin_info['supply'])
-                holders = self.fetch_holder(add, coin_suppy)
-                coin_info['holders'] = holders
-                result.append(coin_info)
-                self.stop_event.set()
-                for future in futures:
-                    future.cancel()
+        # url = self.base_url + f"/token/meta?address={add}"
+        # response = requests.get(url, headers=self.headers)
+        # if response.status_code == 200 and response.json().get("success", False):
+        #     coin_info = response.json().get("data", {})
+        # add = "95ecyahcxcecupe1mrjdsbt82acqke2ocna9ffq9bicf"
+        coin_info = self.get_deep_information(add)
+        if coin_info:
+            volume_24 = coin_info['volume']['h24']
+            if volume_24 > volume * 1e6 and add not in self.ignore_addresses:
+                url = self.base_url + f"/token/meta?address={add}"
+                response = requests.get(url, headers=self.headers)
+                if response.status_code == 200 and response.json().get("success", False):
+                    coin_info = response.json().get("data", {})
+                    
+                token_address = coin_info['address']
+                token_name = coin_info['name']
+                tweet_username = None
+                tweet = fetcher.get_social(token_name, type_social = "twitter")
+                if tweet:
+                    tweet_username = tweet.replace("https://x.com/","")
+                if tweet_username:
+                    coin_suppy = int(coin_info['supply'])
+                    holders = self.fetch_holder(add, coin_suppy)
+                    coin_info['holders'] = holders
+                    coin_info['tweet_username'] = tweet_username
+                    coin_info['volume_24h'] = volume_24
+                    result.append(coin_info)
+                    self.stop_event.set()
+                    for future in futures:
+                        future.cancel()
 
-    def get_coin(self, created_time = 24, volume = 1, page = 100, page_size = 100):
+    def get_coin(self, created_time = 24, volume = 1, page_start = 100, num_page = 10 , page_size = 100):
         data = []
         now = time.time()
         #get token within day
-        for page_i in range(1,page+1):
+        for page_i in range(page_start,page_start + num_page):
             url = self.base_url + f"/token/list?sort_by=created_time&sort_order=desc&page={page_i}&page_size={page_size}"
             response = requests.get(url, headers=self.headers)
             if response.status_code == 200 and response.json().get("success", False):
@@ -143,17 +161,29 @@ class SolanaTransactionFetcher:
             
         return scores, reasons
     
-    def get_social(self, token_address: str, type_social: Literal["twitter","telegram"] = None):
-        url = f'https://api.dexscreener.com/latest/dex/pairs/solana/{token_address}'
+    def get_social(self, token_name: str, type_social: Literal["twitter","telegram"] = None):
+        url = f'https://api.dexscreener.com/latest/dex/search?q={token_name}'
         response = requests.get(url)
         if response.status_code == 200 and response:
             response = response.json()
-            socials = response.get("pair", {}).get("info",{}).get("socials", [])
+            if response['pairs'] is not None:
+                pair = response['pairs'][0]
+                socials = pair.get("info",{}).get("socials", [])
         if type_social:
             for social in socials:
                 if social['type'] == type_social:
                     return social['url']
         return socials
+    
+    def get_deep_information(self, token_address: str):
+        url = f'https://api.dexscreener.com/latest/dex/tokens/{token_address}'
+        response = requests.get(url)
+        if response.status_code == 200 and response:
+            response = response.json()
+            if response['pairs'] is not None:
+                pair = response['pairs'][0]
+                return pair
+        return {}
     
     def get_transactions(self, wallet_address: str, limit: int = 10) -> List[Dict]:
         endpoint = f"{self.base_url}/account/transactions"
@@ -226,22 +256,20 @@ if __name__ == "__main__":
     reporter = Reporter()
     
     # coin information
-    result = fetcher.get_coin(page = 1, page_size = 100)
+    result = fetcher.get_coin(page_start = 10, num_page = 10, page_size = 100)
     promise_token = result[0]
-    token_address = promise_token['address']
+    tweet_username = promise_token['tweet_username']
     token_name = promise_token['name']
     #  analyze narrative
-    tweet = fetcher.get_social(token_address, type_social = "twitter")
-    if tweet:
-        tweet_username = tweet.replace("https://x.com/","")
+    
         
     rest_id = x_client.get_user_by_username(tweet_username)
     post_ids = x_client.get_posts_by_rest_id(rest_id)
     tweets = []
     for post_id in post_ids:
         tweets.append(x_client.get_post_content(post_id))
-        
-    texts = "\n".join(tweets['texts']).strip()
+    print(tweets)
+    texts = "\n".join(tweets).strip()
 
     trending_narrative = """Rebellion against the status quo: Hunger games, Oblivion, 12 Years a slave, in a world of complexity, ruled by dynamics which people feel are out of their direct control, rebellion is a theme that resonates deeply and generates powerful resonance."""
     analysis = reporter.analyse(trending_narrative, texts)
@@ -255,5 +283,4 @@ if __name__ == "__main__":
     print(detail_score)
     
     x_client_post.post(report+detail_score)
-    
-    
+
