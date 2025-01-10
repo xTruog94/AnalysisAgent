@@ -240,6 +240,15 @@ if __name__ == "__main__":
     OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
     TELE_TOKEN = os.environ['TELE_TOKEN']
     TELE_GROUP_ID = os.environ['TELE_GROUP_ID']
+    
+    
+    API_KEY = os.environ['API_KEY']
+    API_SECRET_KEY = os.environ['API_SECRET_KEY']
+    ACCESS_TOKEN = os.environ['ACCESS_TOKEN']
+    ACCESS_TOKEN_SECRET = os.environ['ACCESS_TOKEN_SECRET']
+    BEARER_TOKEN = os.environ["BEARER_TOKEN"]
+    CLIENT_ID = os.environ["CLIENT_ID"]
+    CLIENT_SECRET = os.environ["CLIENT_SECRET"]
 
     #define object
     fetcher = SolanaTransactionFetcher()
@@ -259,6 +268,7 @@ if __name__ == "__main__":
     result = fetcher.get_coin(page_start = 10, num_page = 10, page_size = 100)
     promise_token = result[0]
     tweet_username = promise_token['tweet_username']
+    token_address = promise_token['address']
     token_name = promise_token['name']
     #  analyze narrative
     
@@ -277,10 +287,10 @@ if __name__ == "__main__":
     #calculate score
     total_score, score_reasoning = fetcher.calculate_score(promise_token)
     
-    report = reporter.make_report(token_name, analyse =analysis, aisem_score= total_score )
+    report = reporter.make_report(token_name, ca = token_address, analyse =analysis, aisem_score= total_score )
     detail_score = reporter.make_clarify(score_reasoning)
     print(report)
     print(detail_score)
     
-    x_client_post.post(report+detail_score)
+    x_client_post.post(report, user_auth = True)
 

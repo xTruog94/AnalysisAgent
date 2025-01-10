@@ -35,15 +35,14 @@ class Reporter():
 Trending Narrative: {narrative}
 Token Tweets: {tweets}
 
-Create a 2-3 sentences tweet that:
-1. References the trending narrative
-2. Analyzes the token's strength (WEAK/MEDIUM/STRONG) based on sentiment
-3. Provides a clear market perspective
-
-Use emojis appropriately and maintain a professional tone. Include $TOKEN cashtag.
+Create a 1 sentences tweet within 50 words that
+- Maximum 100 characters
+- Include sentiment (WEAK/MEDIUM/STRONG)
+- Include $TOKEN
+- Connect to narrative
 
 Example Output:
-📈 [Token analysis with narrative context]. [Sentiment and supporting evidence]. STRONG outlook as [specific reason]. $TOKEN
+[Emoji] [Key narrative point + token analysis] [SENTIMENT] $TOKEN
 
 Remember to:
 - Keep within Twitter character limit
@@ -61,14 +60,10 @@ Remember to:
     
     def make_report(self, name, ca = "", analyse = "", aisem_score = 0 ):
         return f"""
-        ${name}
-
+${name}
 CA:{ca}
-
 Narrative Trending: {analyse}
-
 AISEM score: {aisem_score}
-
 NFA.
         """
         

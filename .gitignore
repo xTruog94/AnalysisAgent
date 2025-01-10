@@ -175,3 +175,4 @@ _secret_auth_.json
 data/*.csv
 
 dexsum/*.session
+*.session
