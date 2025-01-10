@@ -29,11 +29,18 @@ class SolanaTransactionFetcher:
         self.stop_event = threading.Event()
         
     def load_ignore_address(self, path = "data/ignore_tokens.txt"):
+        if not os.path.exists(path):
+            return
         with open(path, "r") as lines:
             for line in lines:
                 line = line.strip()
                 if line not in self.ignore_addresses:
                     self.ignore_addresses.append(line)
+    def write_data(self, data, path = "data/ignore_tokens.txt"):
+        with open(path, "w+") as f:
+            for d in data:
+                f.write(d)
+                f.write("\n")
     
     def process_addresses(self, data, volume):
         """
@@ -112,11 +119,13 @@ class SolanaTransactionFetcher:
                     coin_info['tweet_username'] = tweet_username
                     coin_info['volume_24h'] = volume_24
                     result.append(coin_info)
+                    self.ignore_addresses(token_address)
                     self.stop_event.set()
                     for future in futures:
                         future.cancel()
 
     def get_coin(self, created_time = 24, volume = 1, page_start = 100, num_page = 10 , page_size = 100):
+        self.load_ignore_address()
         data = []
         now = time.time()
         #get token within day
@@ -129,6 +138,7 @@ class SolanaTransactionFetcher:
             data = [x["address"] for x in data if x.get("created_time", now-created_time*3600-100) > now - created_time*3600]
         print("number data per day: ", len(data))
         result = self.process_addresses(data, volume)
+        self.write_data(self.ignore_addresses)
         return result
         
     def calculate_score(self, token_data : dict):
