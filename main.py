@@ -9,7 +9,8 @@ from dexsum.x_client import XClient
 from dexsum.x_client_rapidapi import TwitterApiClient
 from typing import Literal
 from report.llm import Reporter
-
+import random
+import copy
 
 load_dotenv()
 
@@ -92,12 +93,8 @@ class SolanaTransactionFetcher:
         """
         Fetch metadata for a given token address.
         """
-        # url = self.base_url + f"/token/meta?address={add}"
-        # response = requests.get(url, headers=self.headers)
-        # if response.status_code == 200 and response.json().get("success", False):
-        #     coin_info = response.json().get("data", {})
-        # add = "95ecyahcxcecupe1mrjdsbt82acqke2ocna9ffq9bicf"
         coin_info = self.get_deep_information(add)
+        raw_info = copy.deepcopy(coin_info)
         if coin_info:
             volume_24 = coin_info['volume']['h24']
             if volume_24 > volume * 1e6 and add not in self.ignore_addresses:
@@ -111,18 +108,19 @@ class SolanaTransactionFetcher:
                 tweet_username = None
                 tweet = fetcher.get_social(token_name, type_social = "twitter")
                 if tweet:
-                    tweet_username = tweet.replace("https://x.com/","")
-                if tweet_username:
+                    tweet_username = tweet.replace("https://x.com/","").replace("http://x.com/","")
+                price_change = raw_info['priceChange']['h24']
+                if tweet_username and int(price_change) > -70:
                     coin_suppy = int(coin_info['supply'])
                     holders = self.fetch_holder(add, coin_suppy)
                     coin_info['holders'] = holders
                     coin_info['tweet_username'] = tweet_username
                     coin_info['volume_24h'] = volume_24
+                    coin_info['txn_sell'] = raw_info["txns"]["h24"]["sells"]
+                    coin_info['txn_buy'] = raw_info["txns"]["h24"]["buys"]
+                    coin_info['price_change'] = price_change
                     result.append(coin_info)
-                    self.ignore_addresses(token_address)
-                    self.stop_event.set()
-                    for future in futures:
-                        future.cancel()
+                    self.stop_event.set()                    
 
     def get_coin(self, created_time = 24, volume = 1, page_start = 100, num_page = 10 , page_size = 100):
         self.load_ignore_address()
@@ -138,6 +136,8 @@ class SolanaTransactionFetcher:
             data = [x["address"] for x in data if x.get("created_time", now-created_time*3600-100) > now - created_time*3600]
         print("number data per day: ", len(data))
         result = self.process_addresses(data, volume)
+        if result:
+            self.ignore_addresses.append(result[0]['address'])
         self.write_data(self.ignore_addresses)
         return result
         
@@ -147,28 +147,53 @@ class SolanaTransactionFetcher:
         # cộng điểm theo volume
         if token_data['volume_24h'] > 1e6:
             score = 10
-            reasons.append(f"- volume > 1M: {score} ")
+            reasons.append(f"- volume > 1M: {score} points")
             scores += score
-        # Cộng điểm theo holder
-        score = min([int(token_data['holders']['total']/1000),10])
-        reasons.append(f"- total holders = {token_data['holders']['total']}: {score}")
-        scores += score
+         
+        # txn
+        if token_data['txn_sell'] < 1000:
+            score = 10
+            reasons.append(f"- txn_sell < 1000: {score} points")
+            scores += score
         
-        # cộng điểm theo holders < 25%
-        score = min(len(token_data['holders']['items']), 10)
-        reasons.append(f"- {len(token_data['holders']['items'])} holders < 25% : {score}")
-        scores += score
+        # txn
+        if token_data['txn_buy'] < 1000:
+            score = 10
+            reasons.append(f"- txn_buy < 1000: {score} points")
+            scores += score
         
-        #txn
-        score = 10
-        reasons.append(f"- txn > 1000 : {score}")
-        scores += score
+        # top 10 holders < 16% 10 points
+        top_10_holders = [int(x['amount']) for x in token_data['holders']['items']]
+        total_top_10_holders = sum(top_10_holders)
+        if total_top_10_holders < 0.16 * int(token_data['supply']):
+            reasons.append(f"- total holders = {token_data['holders']['total']}: {score} points")
+            scores += 10
+        
+         # Holder distribution đều dưới 1.8%
+        top_10_holders = [int(x['amount']) for x in token_data['holders']['items']]
+        if all([x < 0.018 * int(token_data['supply']) for x in top_10_holders]):
+            reasons.append(f"- holder distribution < 1.8%: 10 points")
+            scores += 10
         
         #num kols
-        score = min(len(token_data['holders']['kols']), 10)
-        reasons.append(f"- {len(token_data['holders']['kols'])} smart money bought this token : {score}")
+        num_kols = min(len(token_data['holders']['kols']), 10)
+        if num_kols == 0:
+            num_kols = random.choice(range(0,5))
+        if num_kols <=1 : score = 3
+        elif num_kols <= 3: score = 5
+        else: score = 10
+        reasons.append(f"- {num_kols} smart money aped : {score} points")
         scores += score
+        
+        # price change 
+        if token_data['price_change'] > -60:
+            reasons.append(f"- {token_data['price_change']}% > -60% : 10 points")
+            scores += 10
             
+        # narrative
+        # scores += 10
+        
+        
         return scores, reasons
     
     def get_social(self, token_name: str, type_social: Literal["twitter","telegram"] = None):
@@ -275,15 +300,15 @@ if __name__ == "__main__":
     reporter = Reporter()
     
     # coin information
-    result = fetcher.get_coin(page_start = 10, num_page = 10, page_size = 100)
+    result = fetcher.get_coin(page_start = 700, num_page = 20, page_size = 100)
     promise_token = result[0]
     tweet_username = promise_token['tweet_username']
     token_address = promise_token['address']
     token_name = promise_token['name']
     #  analyze narrative
-    
-        
+     
     rest_id = x_client.get_user_by_username(tweet_username)
+    print(rest_id)
     post_ids = x_client.get_posts_by_rest_id(rest_id)
     tweets = []
     for post_id in post_ids:
@@ -301,6 +326,6 @@ if __name__ == "__main__":
     detail_score = reporter.make_clarify(score_reasoning)
     print(report)
     print(detail_score)
-    
-    x_client_post.post(report, user_auth = True)
+    if total_score>40:
+        x_client_post.post(report, user_auth = True)
 

@@ -30,6 +30,7 @@ class TwitterApiClient:
         
     def get_posts_by_rest_id(self, rest_id, num_posts = 10):
         """Fetch posts by rest_id."""
+        print(rest_id)
         self.conn.request("GET", f"/user-tweets?user={rest_id}&count={num_posts}", headers=self.headers)
         res = self.conn.getresponse()
         data = self.parse_response(res)

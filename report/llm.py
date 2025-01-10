@@ -42,7 +42,7 @@ Create a 1 sentences tweet within 50 words that
 - Connect to narrative
 
 Example Output:
-[Emoji] [Key narrative point + token analysis] [SENTIMENT] $TOKEN
+[Narrative of Token analysis + compare with Trending Narrative] [SENTIMENT]
 
 Remember to:
 - Keep within Twitter character limit
@@ -61,9 +61,13 @@ Remember to:
     def make_report(self, name, ca = "", analyse = "", aisem_score = 0 ):
         return f"""
 ${name}
+
 CA:{ca}
+
 Narrative Trending: {analyse}
+
 AISEM score: {aisem_score}
+
 NFA.
         """
         
