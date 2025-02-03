@@ -281,7 +281,7 @@ def callback(ch, method, properties, body):
         
         message = {
             "report": report,
-            "detail": score_reasoning
+            "detail": report
         }
         
         

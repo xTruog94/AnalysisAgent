@@ -72,7 +72,5 @@ NFA.
         """
         
     def make_clarify(self, detail_score: list):
-        return f"""
-Detail score:
-{"\n".join(detail_score)}
-    """
+        text = "\n".join(detail_score)
+        return text
