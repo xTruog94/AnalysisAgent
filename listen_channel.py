@@ -1,6 +1,9 @@
 from telethon import TelegramClient, events
 import pika
 import json
+from dotenv import load_dotenv
+import os
+load_dotenv()
 
 # Your API credentials
 API_ID = '21451416'
@@ -10,10 +13,10 @@ CHANNEL_USERNAME = 'SolanaListing'  # e.g., 'examplechannel'
 # Create a client instance
 client = TelegramClient('session_name', API_ID, API_HASH)
 QUEUE_NAME = 'test_messages'
-RBMQ_HOST="42.96.32.131"
-RBMQ_PORT=5678
-RBMQ_USER_NAME="root"
-RBMQ_PASSWORD="LibgSsr4399K"
+RBMQ_HOST=os.environ.get("RBMQ_HOST","")
+RBMQ_PORT=os.environ.get("RBMQ_PORT","")
+RBMQ_USER_NAME=os.environ.get("RBMQ_USER_NAME","")
+RBMQ_PASSWORD=os.environ.get("RBMQ_PASSWORD","")
 
 def setup_rabbitmq():
     credentials = pika.PlainCredentials(RBMQ_USER_NAME, RBMQ_PASSWORD)
