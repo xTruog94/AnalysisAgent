@@ -96,8 +96,14 @@ class SolanaTransactionFetcher:
                     tweet_username = tweet.replace("https://x.com/","").replace("http://x.com/","")
                 price_change = raw_info.get('priceChange',{}).get('h24', -100)
                 if int(price_change) > -70:
-                    coin_suppy = round(coin_info['supply'],0) if "supply" in coin_info else int(float(coin_info.get("total_supply",0).replace(",","")))
-                    holders = self.fetch_holder(add, coin_suppy)
+                    market_cap = coin_info['market_cap'].replace("$", "")
+                    if "K" in market_cap:
+                        market_cap = float(market_cap.replace("K",""))*1e3
+                    elif "M" in market_cap:
+                        float(market_cap.replace("M",""))*1e6
+                    elif "B" in market_cap:
+                        float(market_cap.replace("B",""))*1e9
+                    holders = self.fetch_holder(add, market_cap)
                     coin_info['holders'] = holders
                     coin_info['tweet_username'] = tweet_username
                     coin_info['volume_24h'] = volume_24
@@ -112,19 +118,19 @@ class SolanaTransactionFetcher:
         # cộng điểm theo volume
         if token_data.get('volume_24h',0) > 1e6:
             score = 10
-            reasons.append(f"- volume > 1M: {score} points")
+            reasons.append(f"volume > 1M: {score} points")
             scores += score
          
         # txn
         if token_data.get('txn_sell',10000) < 1000:
             score = 10
-            reasons.append(f"- txn_sell < 1000: {score} points")
+            reasons.append(f"txn_sell < 1000: {score} points")
             scores += score
         
         # txn
         if token_data.get('txn_sell',10000) < 1000:
             score = 10
-            reasons.append(f"- txn_buy < 1000: {score} points")
+            reasons.append(f"txn_buy < 1000: {score} points")
             scores += score
         
         # top 10 holders < 16% 10 points
@@ -132,13 +138,13 @@ class SolanaTransactionFetcher:
             top_10_holders = [int(x['amount']) for x in token_data['holders']['items']]
             total_top_10_holders = sum(top_10_holders)
             if total_top_10_holders < 0.16 * int(token_data.get('supply',1e6)):
-                reasons.append(f"- total holders = {token_data['holders']['total']}: {score} points")
+                reasons.append(f"total holders = {token_data['holders']['total']}: {score} points")
                 scores += 10
             
             # Holder distribution đều dưới 1.8%
             top_10_holders = [int(x['amount']) for x in token_data['holders']['items']]
             if all([x < 0.018 * int(token_data.get('supply',1e6)) for x in top_10_holders]):
-                reasons.append(f"- holder distribution < 1.8%: 10 points")
+                reasons.append(f"holder distribution < 1.8%: 10 points")
                 scores += 10
                 #num kols
             num_kols = min(len(token_data['holders']['kols']), 10)
@@ -147,23 +153,23 @@ class SolanaTransactionFetcher:
             if num_kols <=1 : score = 3
             elif num_kols <= 3: score = 5
             else: score = 10
-            reasons.append(f"- {num_kols} smart money aped : {score} points")
+            reasons.append(f"{num_kols} smart money aped : {score} points")
             scores += score
         except:
-            reasons.append(f"- holder distribution < 1.8%: 10 points")
+            reasons.append(f"Holder distribution < 1.8%: 10 points")
             scores += 0
         
         
         
         # price change 
         if token_data.get('price_change', -100) > -60:
-            reasons.append(f"- {token_data['price_change']}% > -60% : 10 points")
+            reasons.append(f"Price change {token_data['price_change']}% > -60% : 10 points")
             scores += 10
             
         # narrative
         # scores += 10
         
-        
+        reasons.append(f"Market cap: {token_data['market_cap']}")
         return scores, reasons
     
     def get_social(self, token_name: str, type_social: Literal["twitter","telegram"] = None):
@@ -236,8 +242,6 @@ class SolanaTransactionFetcher:
         return processed_txns
 
 
-
-
 def connect_to_rabbitmq(host='localhost', port=5672, username='guest', password='guest', virtual_host='/'):
     # Connection parameters
     credentials = pika.PlainCredentials(username, password)
@@ -263,6 +267,7 @@ def callback(ch, method, properties, body):
     token_info = parse_text_to_json(message)
     promise_token = fetcher.fetch_meta(token_info)
     tweet_username = promise_token.get('tweet_username', None)
+    
     try:
         rest_id = x_client.get_user_by_username(tweet_username)
         post_ids = x_client.get_posts_by_rest_id(rest_id)
@@ -271,35 +276,31 @@ def callback(ch, method, properties, body):
             tweets.append(x_client.get_post_content(post_id))
         texts = "\n".join(tweets).strip()
 
-        trending_narrative = """Rebellion against the status quo: Hunger games, Oblivion, 12 Years a slave, in a world of complexity, ruled by dynamics which people feel are out of their direct control, rebellion is a theme that resonates deeply and generates powerful resonance."""
-        analysis = reporter.analyse(trending_narrative, texts)
+        analysis = reporter.analyse(token_info['title'], texts)
 
         #calculate score
         total_score, score_reasoning = fetcher.calculate_score(promise_token)
-        
-        report = reporter.make_report(token_info['title'], ca = token_info['contract_address'], analyse =analysis, aisem_score= total_score )
-        
-        message = {
-            "report": report,
-            "detail": report
-        }
-        
-        
-        _ , sub_ch = connect_to_rabbitmq(
-            host=os.environ.get("RBMQ_HOST",""),
-            port=os.environ.get("RBMQ_PORT",""), 
-            username=os.environ.get("RBMQ_USER_NAME",""), 
-            password=os.environ.get("RBMQ_PASSWORD",""), 
-            virtual_host='/'
-        )
-        sub_ch.queue_declare(queue='publish', durable = True)
-
-        sub_ch.basic_publish(
-                exchange='',
-                routing_key="publish",
-                body=json.dumps(message),
-                properties=pika.BasicProperties(delivery_mode=2)  # Make message persistent
+        if total_score > 0:
+            report = reporter.make_report(token_info['title'], ca = token_info['contract_address'], analyse =analysis, aisem_score= total_score )
+            message = {
+                "report": report,
+                "detail": "\n".join(score_reasoning) if SHOW_DETAIL else ""
+            }
+            _ , sub_ch = connect_to_rabbitmq(
+                host=os.environ.get("RBMQ_HOST",""),
+                port=os.environ.get("RBMQ_PORT",""), 
+                username=os.environ.get("RBMQ_USER_NAME",""), 
+                password=os.environ.get("RBMQ_PASSWORD",""), 
+                virtual_host='/'
             )
+            sub_ch.queue_declare(queue='publish', durable = True)
+
+            sub_ch.basic_publish(
+                    exchange='',
+                    routing_key="publish",
+                    body=json.dumps(message),
+                    properties=pika.BasicProperties(delivery_mode=2)  # Make message persistent
+                )
         
 
         ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -313,7 +314,7 @@ if __name__ == "__main__":
     TELE_TOKEN = os.environ['TELE_TOKEN']
     TELE_GROUP_ID = os.environ['TELE_GROUP_ID']
     
-
+    SHOW_DETAIL = False
     #define object
     fetcher = SolanaTransactionFetcher()
     
